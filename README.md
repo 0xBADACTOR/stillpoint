@@ -33,6 +33,7 @@ is the anomaly.*
 - **Local-only.** All data lives on your device. There is no cloud component, no remote server, no telemetry, no update channel. The map UI binds to `127.0.0.1` by default. This repository is intended to be run locally — do not deploy the backend to a public server.
 - **Passive only.** This tool never deauthenticates, spoofs, or transmits. It only listens.
 - **Defensive framing.** This is a personal-safety tool for detecting stalkers, persistent trackers (AirTags, Tiles), and suspicious vehicles. It is not a surveillance platform.
+- **Intended for defensive use only.** This tool is meant to enhance personal safety by detecting passive anomalies. It should not be used to facilitate or conceal illegal activities.
 - **Operator accountability.** YOU are responsible for complying with the laws of your jurisdiction. Recording license plates and MAC addresses carries legal obligations in many places.
 
 ## Limitations
@@ -74,7 +75,7 @@ Comprehensive documentation is available in the `docs/` directory:
   - Recommendations for compliant use (data retention, hashing, privacy precautions)
   - Licensing information and intended use (local, personal use only)
 
-- **[THREAT MODEL](docs/threat-model.md)**: Analysis of threats StillWheel is designed to mitigate:
+- **[THREAT MODEL](docs/threat-model.md)**: Analysis of threats StillPoint is designed to mitigate:
   - Protection against physical stalkers, planted trackers (AirTags/Tiles), and suspicious vehicles
   - Limitations (RF-silent operators, plate-swapping stalkers, etc.)
   - Software security considerations (database poisoning, data exfiltration, DoS resistance)
