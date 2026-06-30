@@ -8,8 +8,7 @@ is the anomaly.*
 
 ## What it does
 
-A Raspberry Pi in your car (or bag) passively listens to **WiFi, Bluetooth,
-and other radio bands** using [Kismet](https://www.kismetwireless.net/).
+A Raspberry Pi in your car (or bag) passively listens to **WiFi, Bluetooth, Zigbee, NRF (2.4GHz), and other radio bands** using [Kismet](https://www.kismetwireless.net/).
 With optional SDR hardware, it can also detect GSM/Cellular signals including
 IMEI identifiers. Each detection is tagged with GPS coordinates and timestamped. Signals that
 appear at **three or more distinct geo-clusters** are flagged as
