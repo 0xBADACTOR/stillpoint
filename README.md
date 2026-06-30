@@ -35,6 +35,25 @@ is the anomaly.*
 - **Defensive framing.** This is a personal-safety tool for detecting stalkers, persistent trackers (AirTags, Tiles), and suspicious vehicles. It is not a surveillance platform.
 - **Operator accountability.** YOU are responsible for complying with the laws of your jurisdiction. Recording license plates and MAC addresses carries legal obligations in many places.
 
+## Limitations
+
+Understanding what StillPoint does **not** do is as important as what it does:
+- **No active countermeasures**: Does not jam, deauthenticate, or interfere with signals
+- **No facial recognition**: Focuses on signals and plates, not individuals
+- **Limited indoor performance**: GPS accuracy degrades significantly indoors/underground
+- **SDR optional**: GSM/IMEI detection requires additional hardware
+- **ANPR limitations**: Plate recognition accuracy varies with lighting, angle, speed, and plate condition
+- **Follower false positives**: Common devices (e.g., frequently seen delivery vehicles) may appear as followers
+
+## Threat Model
+
+StillPoint is designed to defend against specific threats while acknowledging its limitations:
+- **Protects against**: Physical stalkers with active devices, planted trackers (AirTags/Tiles), suspicious vehicles with recurring plates
+- **Does not protect against**: RF-silent operators, plate-swapping stalkers, high-altitude surveillance, or adversaries who never repeat routes
+- **Software considerations**: Mitigates database poisoning via filesystem protections, prevents data exfiltration via localhost-only binding, and rate-limits ingestion to resist RF flooding
+
+See [`docs/threat-model.md`](docs/threat-model.md) for the complete threat analysis.
+
 ## Repository Layout
 
 ```
@@ -51,7 +70,17 @@ stillpoint/
 
 ## Status
 
-Early scaffolding. See [`docs/roadmap.md`](docs/roadmap.md) for the milestone plan.
+Currently implementing **v0.1 core functionality**:
+- ✅ SQLite schema and persistence layer
+- ✅ Kismet log ingestor with multi-band detection
+- ✅ Geo-clustering algorithm (100m Haversine distance)
+- ✅ Follower detection (3+ cluster threshold)
+- ✅ REST API and Leaflet web interface
+- ⏳ ANPR module (camera + OCR)
+- ⏳ Systemd services for auto-start
+- ⏳ Hardware provisioning script
+
+See [`docs/roadmap.md`](docs/roadmap.md) for detailed milestone planning.
 
 ## Quickstart (Planned)
 
@@ -67,9 +96,17 @@ docker compose up core         # starts the backend + map UI
 
 MIT — see [`LICENSE`](LICENSE).
 
-## Legal
+## Legal & Compliance
 
-Passive radio monitoring is legal in most jurisdictions for personal protection on your own property. **Recording license plates in a database may be restricted** depending on where you live — review [`docs/legal.md`](docs/legal.md) before deploying.
+**Important**: This tool is for personal safety use only. Operators are responsible for complying with local laws regarding radio monitoring and license plate recording.
+
+Key legal considerations:
+- **Passive radio monitoring**: Generally legal in most jurisdictions for personal use, but restrictions may apply
+- **License plate recording**: May be regulated as personal data in many regions (e.g., GDPR in EU/UK)
+- **Data retention**: Recommend 30-day automatic purge to minimize privacy risks
+- **Hashing**: Identifiers are stored as SHA-256 hashes by default; plaintext storage requires explicit opt-in
+
+See [`docs/legal.md`](docs/legal.md) for detailed jurisdictional information.
 
 ## Hardware Guide
 
