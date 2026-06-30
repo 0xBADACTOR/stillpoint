@@ -2,7 +2,7 @@
 
 ## v0.1 — Skeleton (current)
 - [x] Repo layout
-- [ ] `core/persistence` schema (SQLite tables for `detections`,
+- [x] `core/persistence` schema (SQLite tables for `detections`,
       `signals`, `geo_clusters`, `followers`)
 - [ ] `core/persistence` geo-clustering algorithm
 - [ ] Kismet log ingest script (`scripts/ingest_kismet.py`)

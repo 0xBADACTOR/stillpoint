@@ -1,5 +1,10 @@
 """Persistence layer: SQLite schema + geo-clustering + follower detection.
 
-Public entry points (added in v0.1 implementation):
-    from core.persistence import Database, FollowerDetector
+Public entry points:
+    from core.persistence import Database
 """
+from __future__ import annotations
+
+from core.persistence.database import Database
+
+__all__ = ["Database"]
