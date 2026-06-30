@@ -6,7 +6,11 @@ requires-python = ">=3.11"
 license = {text = "MIT"}
 
 dependencies = [
-    # Filled in as modules land. See docs/roadmap.md.
+    "fastapi>=0.100.0",
+    "uvicorn[standard]>=0.20.0",
+    "opencv-python>=4.8.0",
+    "numpy>=1.24.0",
+    "paddleocr>=2.7.0.3",
 ]
 
 [project.optional-dependencies]

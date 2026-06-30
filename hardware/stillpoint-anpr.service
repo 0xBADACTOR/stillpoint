@@ -1,0 +1,17 @@
+[Unit]
+Description=StillPoint ANPR Processor
+After=kismet.service gpsd.service
+Wants=kismet.service gpsd.service
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/stillpoint
+ExecStart=/home/pi/stillpoint/venv/bin/python scripts/anpr_processor.py --db /home/pi/data/stillpoint.db --save-detections
+Restart=always
+RestartSec=30
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
