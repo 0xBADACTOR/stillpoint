@@ -1,0 +1,36 @@
+[project]
+name = "stillpoint"
+version = "0.0.1"
+description = "Passive multi-radio follower-detection system for personal safety."
+requires-python = ">=3.11"
+license = {text = "MIT"}
+
+dependencies = [
+    # Filled in as modules land. See docs/roadmap.md.
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6",
+    "mypy>=1.10",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["core.*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "ASYNC"]
+
+[tool.mypy]
+strict = true
+python_version = "3.11"

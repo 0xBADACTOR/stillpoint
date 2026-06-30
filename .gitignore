@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.env
+.env.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Data — this tool generates a lot, never commit it
+data/
+*.db
+*.sqlite
+*.sqlite3
+*.log
+captures/
+kismet_logs/
+
+# Build artifacts
+dist/
+build/
+*.whl
+
+# Secrets — operator config
+config.local.yml
+secrets/
