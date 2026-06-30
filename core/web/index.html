@@ -3,16 +3,168 @@
 <head>
     <meta charset="UTF-8">
     <title>StillPoint</title>
-    <!--
-      Leaflet UI lands in v0.1. Planned features:
-      - Map of all detections (clustered)
-      - Toggle layers: WiFi / Bluetooth / ANPR
-      - Highlighted "follower" traces
-      - Timeline slider to replay a session
-    -->
+    <link
+        rel="stylesheet"
+        href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-sA+e2bUYpV8hX0vY4Y6Y6Y6Y6Y6Y6Y6Y6Y6Y6Y6Y6Y6="
+        crossorigin=""
+    />
+    <style>
+        #map {
+            height: 100vh;
+            width: 100%;
+        }
+        #controls {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: white;
+            padding: 10px;
+            border-radius: 5px;
+            z-index: 1000;
+        }
+        button {
+            margin: 5px;
+            padding: 5px 10px;
+            cursor: pointer;
+        }
+    </style>
 </head>
 <body>
-    <h1>StillPoint</h1>
-    <p>Map UI pending implementation.</p>
+<div id="controls">
+    <h2>StillPoint</h2>
+    <button id="loadFollowers">Show Followers Only</button>
+    <button id="loadAll">Show All Detections</button>
+    <button id="clear">Clear Map</button>
+    <div id="status">Ready</div>
+</div>
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-o9N1j8eJzV6v7Z6z6Y6Y6Y6Y6Y6Y6Y6Y6Y6Y6Y6Y6Y6="
+        crossorigin=""></script>
+<script>
+    const map = L.map('map').setView([0, 0], 2);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+    }).addTo(map);
+
+    let markersLayer = L.layerGroup().addTo(map);
+    let followerMarkers = L.layerGroup().addTo(map);
+    let allMarkers = L.layerGroup().addTo(map);
+
+    // Base layers
+    const baseLayers = {
+        "OpenStreetMap": L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'),
+    };
+
+    // Overlays
+    const overlays = {
+        "All Detections": allMarkers,
+        "Followers Only": followerMarkers,
+    };
+
+    L.control.layers(baseLayers, overlays).addTo(map);
+
+    const statusEl = document.getElementById('status');
+    const loadAllBtn = document.getElementById('loadAll');
+    const loadFollowersBtn = document.getElementById('loadFollowers');
+    const clearBtn = document.getElementById('clear');
+
+    function setStatus(msg) {
+        statusEl.textContent = msg;
+        console.log(msg);
+    }
+
+    async function loadData(endpoint) {
+        try {
+            setStatus(`Loading data from ${endpoint}...`);
+            const response = await fetch(endpoint);
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+            const geojson = await response.json();
+            return geojson;
+        } catch (err) {
+            setStatus(`Error loading data: ${err}`);
+            return null;
+        }
+    }
+
+    function displayGeoJSON(geojson, layerGroup) {
+        layerGroup.clearLayers();
+        if (!geojson || !geojson.features || geojson.features.length === 0) {
+            setStatus("No data to display.");
+            return;
+        }
+        const geoJsonLayer = L.geoJSON(geojson, {
+            pointToLayer: function (feature, latlng) {
+                return L.circleMarker(latlng, {
+                    radius: 5,
+                    fillColor: feature.properties.signal_type === 'wifi' ? '#3388ff' :
+                               feature.properties.signal_type === 'bluetooth' ? '#ff8833' :
+                               feature.properties.signal_type === 'zigbee' ? '#88ff33' :
+                               feature.properties.signal_type === 'nrf' ? '#ff3388' :
+                               '#999999',
+                    color: '#000',
+                    weight: 1,
+                    opacity: 1,
+                    fillOpacity: 0.8
+                });
+            },
+            onEachFeature: function (feature, layer) {
+                const props = feature.properties;
+                let popupContent = `
+                    <strong>Signal Type:</strong> ${props.signal_type}<br>
+                    <strong>Hash:</strong> ${props.identifier_hash.substring(0, 8)}...<br>
+                    <strong>Time:</strong> ${props.seen_at}<br>
+                    <strong>RSSI:</strong> ${props.rssi} dBm
+                `;
+                layer.bindPopup(popupContent);
+            }
+        });
+        layerGroup.addLayer(geoJsonLayer);
+        // Fit bounds to show all points
+        if (geoJsonLayer.getBounds().isValid? Actually, we need to check if the layerGroup has any layers.
+        // Simpler: fit to the geoJsonLayer bounds if it has any features.
+        if (geoJsonLayer.getLayers().length > 0) {
+            map.fitBounds(geoJsonLayer.getBounds(), { padding: [50, 50] });
+        }
+        setStatus(`Displayed ${geoJsonLayer.getLayers().length} points.`);
+    }
+
+    loadAllBtn.addEventListener('click', async () => {
+        const geojson = await loadData('/api/map/geojson?hours=24');
+        if (geojson) {
+            displayGeoJSON(geojson, allMarkers);
+            // Also show in the layers control
+            map.addLayer(allMarkers);
+        }
+    });
+
+    loadFollowersBtn.addEventListener('click', async () => {
+        const geojson = await loadData('/api/map/geojson?hours=24&followers_only=true');
+        if (geojson) {
+            displayGeoJSON(geojson, followerMarkers);
+            map.addLayer(followerMarkers);
+        }
+    });
+
+    clearBtn.addEventListener('click', () => {
+        allMarkers.clearLayers();
+        followerMarkers.clearLayers();
+        setStatus("Map cleared.");
+    });
+
+    // Load all data by default on startup
+    window.addEventListener('load', async () => {
+        setStatus("Loading initial data...");
+        const geojson = await loadData('/api/map/geojson?hours=24');
+        if (geojson) {
+            displayGeoJSON(geojson, allMarkers);
+            map.addLayer(allMarkers);
+        }
+    });
+</script>
 </body>
 </html>

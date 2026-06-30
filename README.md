@@ -10,7 +10,8 @@ is the anomaly.*
 
 A Raspberry Pi in your car (or bag) passively listens to **WiFi, Bluetooth,
 and other radio bands** using [Kismet](https://www.kismetwireless.net/).
-Each detection is tagged with GPS coordinates and timestamped. Signals that
+With optional SDR hardware, it can also detect GSM/Cellular signals including
+IMEI identifiers. Each detection is tagged with GPS coordinates and timestamped. Signals that
 appear at **three or more distinct geo-clusters** are flagged as
 "followers" and plotted on a map so you can review their movement.
 
@@ -43,7 +44,7 @@ stillpoint/
 │   └── web         # Leaflet-based map UI
 ├── hardware/       # Pi provisioning scripts (Kismet, GPS, systemd)
 ├── scripts/        # Operator utilities
-├── docs/           # Architecture, threat model, legal notes
+├── docs/           # Architecture, threat model, legal notes, hardware guide
 └── .github/        # CI workflows
 ```
 
@@ -72,3 +73,11 @@ Passive radio monitoring is legal in most jurisdictions for personal
 protection on your own property. **Recording license plates in a database
 may be restricted** depending on where you live — review
 [`docs/legal.md`](docs/legal.md) before deploying.
+
+## Hardware Guide
+
+See [`docs/hardware-guide.md`](docs/hardware-guide.md) for detailed
+instructions on building and deploying StillPoint in a vehicle,
+including parts list, assembly instructions, power wiring, and software
+setup. The guide includes both a base configuration for WiFi/Bluetooth/Zigbee/NRF
+detection and an optional upgrade path for GSM/IMEI reception using SDR hardware.

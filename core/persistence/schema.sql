@@ -6,6 +6,7 @@
 --   geo_clusters    - cached cluster centroids per signal
 --   follower_events - audit trail of follower flag transitions
 --   installation    - single-row config: salt, plaintext opt-in, created_at
+--   ignored_signals - list of identifier_hash to ignore for alerts
 --
 -- Notes:
 --   * identifier_hash is the canonical join key. Same MAC across sessions
@@ -35,7 +36,7 @@ CREATE TABLE IF NOT EXISTS installation (
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS signals (
     id                INTEGER PRIMARY KEY,
-    signal_type       TEXT NOT NULL CHECK (signal_type IN ('wifi', 'bluetooth', 'anpr')),
+    signal_type       TEXT NOT NULL CHECK (signal_type IN ('wifi', 'bluetooth', 'anpr', 'zigbee', 'nrf', 'gsm', 'other')),
     identifier_hash   TEXT NOT NULL UNIQUE,
     identifier_plain  TEXT,
     label             TEXT,
@@ -98,3 +99,15 @@ CREATE TABLE IF NOT EXISTS follower_events (
 );
 
 CREATE INDEX IF NOT EXISTS idx_follower_events_signal ON follower_events(signal_id, recorded_at);
+
+-- ---------------------------------------------------------------------------
+-- ignored_signals: list of identifier_hash to ignore for alerts.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS ignored_signals (
+    id          INTEGER PRIMARY KEY,
+    identifier_hash TEXT NOT NULL UNIQUE,
+    ignored_at  TEXT NOT NULL,
+    reason      TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_ignored_signals_hash ON ignored_signals(identifier_hash);

@@ -33,3 +33,7 @@ build/
 # Secrets — operator config
 config.local.yml
 secrets/
+
+# Personal dev helpers
+resume.bat
+*.local.bat
