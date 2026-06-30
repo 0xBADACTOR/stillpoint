@@ -54,6 +54,37 @@ StillPoint is designed to defend against specific threats while acknowledging it
 
 See [`docs/threat-model.md`](docs/threat-model.md) for the complete threat analysis.
 
+## Documentation
+
+Comprehensive documentation is available in the `docs/` directory:
+
+- **[HARDWARE GUIDE](docs/hardware-guide.md)**: Complete instructions for building and deploying StillPoint in a vehicle, including:
+  - Recommended hardware specifications and parts list with vendor links
+  - Step-by-step assembly instructions with diagrams
+  - Power wiring and installation guidelines
+  - Software setup (OS installation, dependencies, configuration)
+  - Systemd service configuration for auto-start
+  - Vehicle installation tips and maintenance schedule
+  - Troubleshooting common issues
+  - Optional upgrade paths (SDR for GSM/IMEI, cellular modem for alerts, etc.)
+
+- **[LEGAL NOTES](docs/legal.md)**: Important legal considerations for using StillPoint:
+  - Passive radio monitoring regulations by jurisdiction (US, EU, Australia)
+  - License plate recording laws and GDPR considerations
+  - Recommendations for compliant use (data retention, hashing, privacy precautions)
+  - Licensing information and intended use (local, personal use only)
+
+- **[THREAT MODEL](docs/threat-model.md)**: Analysis of threats StillWheel is designed to mitigate:
+  - Protection against physical stalkers, planted trackers (AirTags/Tiles), and suspicious vehicles
+  - Limitations (RF-silent operators, plate-swapping stalkers, etc.)
+  - Software security considerations (database poisoning, data exfiltration, DoS resistance)
+
+- **[ROADMAP](docs/roadmap.md)**: Development plan showing progress toward releases:
+  - **v0.1 (Current)**: Core functionality (persistence, ingestion, geo-clustering, follower detection, API/UI)
+  - **v0.2**: Bluetooth enhancements (BLE advertisements, tracker signatures)
+  - **v0.3**: ANPR module improvements (plate normalization, OCR error correction)
+  - **v1.0**: Public release (Docker support, Pi image, tested quickstart)
+
 ## Repository Layout
 
 ```
@@ -76,8 +107,8 @@ Currently implementing **v0.1 core functionality**:
 - ✅ Geo-clustering algorithm (100m Haversine distance)
 - ✅ Follower detection (3+ cluster threshold)
 - ✅ REST API and Leaflet web interface
-- ⏳ ANPR module (camera + OCR)
-- ⏳ Systemd services for auto-start
+- ✅ ANPR module (camera + OCR)
+- ✅ Systemd services for auto-start
 - ⏳ Hardware provisioning script
 
 See [`docs/roadmap.md`](docs/roadmap.md) for detailed milestone planning.

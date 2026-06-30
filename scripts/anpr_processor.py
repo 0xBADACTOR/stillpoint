@@ -11,10 +11,12 @@ import numpy as np
 import time
 import os
 import sys
-import re  # Added missing import
+import re
+import json
+import socket
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Optional, Tuple, List
+from typing import Optional, Tuple, List, Tuple as TPair
 
 # Add the project root to the sys.path so we can import core.persistence
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -23,18 +25,90 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from core.persistence.database import Database
 
 
+class GPSReader:
+    """Reads GPS data from gpsd via TCP socket."""
+
+    def __init__(self, host: str = "localhost", port: int = 2947):
+        self.host = host
+        self.port = port
+        self.socket = None
+        self.connected = False
+        self.lat = None
+        self.lon = None
+        self._connect()
+
+    def _connect(self) -> None:
+        """Connect to gpsd."""
+        try:
+            self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.socket.settimeout(5.0)
+            self.socket.connect((self.host, self.port))
+            # Watch for JSON output
+            self.socket.sendall(b'?WATCH={"enable":true,"json":true};\n')
+            self.connected = True
+        except Exception as e:
+            print(f"GPS: Failed to connect to gpsd at {self.host}:{self.port}: {e}")
+            self.connected = False
+
+    def read(self) -> Optional[Tuple[float, float]]:
+        """Read the latest GPS fix.
+
+        Returns:
+            Tuple of (latitude, longitude) or None if unavailable.
+        """
+        if not self.connected or not self.socket:
+            return None
+
+        try:
+            # Receive data
+            data = self.socket.recv(4096).decode('utf-8')
+            # Parse JSON lines
+            for line in data.strip().split('\n'):
+                if not line:
+                    continue
+                try:
+                    report = json.loads(line)
+                    if report.get('class') == 'TPV':
+                        lat = getattr(report, 'lat', None)
+                        lon = getattr(report, 'lon', None)
+                        if lat is not None and lon is not None:
+                            self.lat = float(lat)
+                            self.lon = float(lon)
+                            return (self.lat, self.lon)
+                except (json.JSONDecodeError, AttributeError, ValueError):
+                    continue
+            return (self.lat, self.lon) if self.lat is not None and self.lon is not None else None
+        except Exception as e:
+            print(f"GPS: Error reading from gpsd: {e}")
+            self.connected = False
+            return None
+
+    def close(self) -> None:
+        """Close the socket."""
+        if self.socket:
+            try:
+                self.socket.sendall(b'?WATCH={"enable":false};\n')
+            except:
+                pass
+            self.socket.close()
+            self.socket = None
+            self.connected = False
+
+
 class ANPRProcessor:
     """Handles license plate detection and recognition."""
 
-    def __init__(self, use_paddleocr: bool = True):
+    def __init__(self, use_paddleocr: bool = True, gps_reader: Optional[GPSReader] = None):
         """
         Initialize the ANPR processor.
 
         Args:
             use_paddleocr: If True, use PaddleOCR; otherwise use Tesseract fallback
+            gps_reader: Optional GPSReader instance for geotagging
         """
         self.use_paddleocr = use_paddleocr
         self.ocr = None
+        self.gps_reader = gps_reader
         self._initialize_ocr()
 
         # Common license plate patterns for validation (US-centric, can be extended)
@@ -46,6 +120,16 @@ class ANPRProcessor:
             r'^[A-Z]{1}[0-9]{3}[A-Z]{1}[0-9]{1}$', # A123B4
             r'^[A-Z]{2}[0-9]{2}[A-Z]{2}$',   # AB12CD
         ]
+
+        # Common OCR misrecognitions for license plates
+        self.ocr_corrections = {
+            'O': '0', 'o': '0',
+            'I': '1', 'i': '1', 'l': '1', '|': '1',
+            'S': '5', 's': '5',
+            'B': '8', 'b': '6', # context dependent, but we'll try
+            'G': '6', 'g': '6',
+            'Z': '2', 'z': '2',
+        }
 
     def _initialize_ocr(self) -> None:
         """Initialize the OCR engine."""
@@ -112,7 +196,7 @@ class ANPRProcessor:
         """
         detections = []
 
-        # Method 1: Use Haar cascade for license plates (if available)
+        # Method 1: Use Haar cascade for license plates (note: this cascade is for Russian plates; may need to be replaced for other regions)
         try:
             plate_cascade = cv2.CascadeClassifier(
                 cv2.data.haarcascades + 'haarcascade_russian_plate_number.xml'
@@ -188,7 +272,7 @@ class ANPRProcessor:
 
     def recognize_text(self, plate_image: np.ndarray) -> Tuple[Optional[str], float]:
         """
-        Recognize text from a license plate image.
+        Recognize text from a license plate image with multiple attempts.
 
         Args:
             plate_image: Cropped license plate image (grayscale)
@@ -199,40 +283,124 @@ class ANPRProcessor:
         if self.ocr is None:
             return None, 0.0
 
+        best_text = None
+        best_confidence = 0.0
+
         try:
             if self.use_paddleocr:
-                # PaddleOCR expects BGR or RGB image
-                if len(plate_image.shape) == 2:  # Grayscale
-                    plate_image = cv2.cvtColor(plate_image, cv2.COLOR_GRAY2BGR)
-
-                result = self.ocr.ocr(plate_image, cls=True)
-                if result and result[0]:
-                    text = result[0][0][1][0]  # Extract text
-                    confidence = result[0][0][1][1]  # Extract confidence
-                    return text.upper(), confidence
+                # Try multiple preprocessing approaches for PaddleOCR
+                preprocessed_images = self._get_preprocessing_variants(plate_image)
+                for proc_img in preprocessed_images:
+                    text, confidence = self._recognize_with_paddleocr(proc_img)
+                    if text and confidence > best_confidence:
+                        best_text = text
+                        best_confidence = confidence
             else:
-                # Tesseract fallback
-                import pytesseract
-                # Configure for license plates (single block of text)
-                custom_config = r'--oem 3 --psm 8 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
-                text = pytesseract.image_to_string(plate_image, config=custom_config)
-                text = ''.join(filter(str.isalnum, text)).upper()  # Keep only alphanumeric
-                if text:
-                    # Simple confidence estimation based on length and character variety
-                    confidence = min(0.9, len(text) / 8.0)  # Assume 8 chars is good
-                    return text, confidence
+                # Tesseract fallback with multiple configs
+                configs = [
+                    r'--oem 3 --psm 8 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789',
+                    r'--oem 3 --psm 7 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789',
+                    r'--oem 3 --psm 6 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789',
+                ]
+                for config in configs:
+                    text, confidence = self._recognize_with_tesseract(plate_image, config)
+                    if text and confidence > best_confidence:
+                        best_text = text
+                        best_confidence = confidence
+
+            # Apply OCR corrections and normalization
+            if best_text:
+                normalized = self.normalize_plate(best_text)
+                # Recalculate confidence based on validation
+                if self.validate_plate(normalized):
+                    return normalized, best_confidence * 0.9  # Slight penalty for normalization
+                else:
+                    # If normalization fails validation, try raw with lower confidence
+                    return best_text, best_confidence * 0.7
 
             return None, 0.0
         except Exception as e:
             print(f"OCR recognition failed: {e}")
             return None, 0.0
 
-    def validate_plate(self, text: str) -> bool:
+    def _get_preprocessing_variants(self, image: np.ndarray) -> List[np.ndarray]:
+        """Generate preprocessing variants for OCR."""
+        variants = []
+        # Original
+        variants.append(image)
+        # Gaussian blur
+        blurred = cv2.GaussianBlur(image, (3,3), 0)
+        variants.append(blurred)
+        # Adaptive threshold
+        thresh = cv2.adaptiveThreshold(image, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                                      cv2.THRESH_BINARY, 11, 2)
+        variants.append(thresh)
+        # Morphological close
+        kernel = np.ones((2,2), np.uint8)
+        closed = cv2.morphologyEx(image, cv2.MORPH_CLOSE, kernel)
+        variants.append(closed)
+        return variants
+
+    def _recognize_with_paddleocr(self, plate_image: np.ndarray) -> Tuple[Optional[str], float]:
+        """Recognize text using PaddleOCR."""
+        if len(plate_image.shape) == 2:  # Grayscale
+            plate_image = cv2.cvtColor(plate_image, cv2.COLOR_GRAY2BGR)
+
+        result = self.ocr.ocr(plate_image, cls=True)
+        if result and result[0]:
+            text = result[0][0][1][0]  # Extract text
+            confidence = result[0][0][1][1]  # Extract confidence
+            return text.upper(), confidence
+        return None, 0.0
+
+    def _recognize_with_tesseract(self, plate_image: np.ndarray, config: str) -> Tuple[Optional[str], float]:
+        """Recognize text using Tesseract with given config."""
+        import pytesseract
+        # Configure for license plates (single block of text)
+        text = pytesseract.image_to_string(plate_image, config=config)
+        text = ''.join(filter(str.isalnum, text)).upper()  # Keep only alphanumeric
+        if text:
+            # Simple confidence estimation based on length and character variety
+            confidence = min(0.9, len(text) / 8.0)  # Assume 8 chars is good
+            # Boost confidence if all alphanumeric and reasonable length
+            if 2 <= len(text) <= 10 and text.isalnum():
+                confidence = min(0.95, confidence + 0.1)
+            return text, confidence
+        return None, 0.0
+
+    def normalize_plate(self, text: str) -> str:
         """
-        Validate if the recognized text looks like a license plate.
+        Normalize license plate text by applying OCR corrections and formatting.
 
         Args:
-            text: Recognized text string
+            text: Raw recognized text
+
+        Returns:
+            Normalized text string
+        """
+        if not text:
+            return ""
+
+        # Convert to uppercase
+        text = text.upper()
+
+        # Remove common separators
+        text = re.sub(r'[-\s_.]', '', text)
+
+        # Apply character corrections based on common OCR errors
+        corrected = []
+        for char in text:
+            corrected.append(self.ocr_corrections.get(char, char))
+        text = ''.join(corrected)
+
+        return text
+
+    def validate_plate(self, text: str) -> bool:
+        """
+        Validate if the normalized text looks like a license plate.
+
+        Args:
+            text: Normalized text string
 
         Returns:
             True if text matches common license plate patterns
@@ -251,7 +419,7 @@ class ANPRProcessor:
 
         return has_letter and has_number and 2 <= len(text) <= 10
 
-    def process_frame(self, frame: np.ndarray) -> List[Tuple[str, float, np.ndarray]]:
+    def process_frame(self, frame: np.ndarray) -> List[Tuple[str, float, np.ndarray, Optional[float], Optional[float]]]:
         """
         Process a single frame to detect and recognize license plates.
 
@@ -259,7 +427,7 @@ class ANPRProcessor:
             frame: Input BGR frame from camera
 
         Returns:
-            List of (plate_text, confidence, plate_image) tuples
+            List of (plate_text, confidence, plate_image, latitude, longitude) tuples
         """
         results = []
 
@@ -269,6 +437,13 @@ class ANPRProcessor:
         # Detect potential license plate regions
         plate_regions = self.detect_license_plate(processed)
 
+        # Get current GPS location if available
+        lat, lon = None, None
+        if self.gps_reader:
+            gps_data = self.gps_reader.read()
+            if gps_data:
+                lat, lon = gps_data
+
         for plate_image, detection_confidence in plate_regions:
             # Recognize text in the plate region
             text, ocr_confidence = self.recognize_text(plate_image)
@@ -276,7 +451,7 @@ class ANPRProcessor:
             if text and self.validate_plate(text):
                 # Combined confidence: detection * OCR
                 combined_confidence = detection_confidence * ocr_confidence
-                results.append((text, combined_confidence, plate_image))
+                results.append((text, combined_confidence, plate_image, lat, lon))
 
         return results
 
@@ -311,7 +486,7 @@ def capture_from_camera(camera_index: int = 0) -> Optional[np.ndarray]:
     return frame
 
 
-def process_image_file(image_path: str) -> List[Tuple[str, float, np.ndarray]]:
+def process_image_file(image_path: str) -> List[Tuple[str, float, np.ndarray, Optional[float], Optional[float]]]:
     """
     Process a single image file for license plates.
 
@@ -319,7 +494,7 @@ def process_image_file(image_path: str) -> List[Tuple[str, float, np.ndarray]]:
         image_path: Path to the image file
 
     Returns:
-        List of (plate_text, confidence, plate_image) tuples
+        List of (plate_text, confidence, plate_image, latitude, longitude) tuples
     """
     if not os.path.exists(image_path):
         print(f"Error: Image file not found: {image_path}")
@@ -330,7 +505,8 @@ def process_image_file(image_path: str) -> List[Tuple[str, float, np.ndarray]]:
         print(f"Error: Could not read image file: {image_path}")
         return []
 
-    processor = ANPRProcessor()
+    # For image files, we don't have GPS, so pass None
+    processor = ANPRProcessor(gps_reader=None)
     return processor.process_frame(frame)
 
 
@@ -369,6 +545,18 @@ def main() -> None:
         action="store_true",
         help="Save detected plate images to ./detected_plates/ directory"
     )
+    parser.add_argument(
+        "--gps-host",
+        type=str,
+        default="localhost",
+        help="GPSD host (default: localhost)"
+    )
+    parser.add_argument(
+        "--gps-port",
+        type=int,
+        default=2947,
+        help="GPSD port (default: 2947)"
+    )
     args = parser.parse_args()
 
     # Create detections directory if saving images
@@ -384,9 +572,16 @@ def main() -> None:
         print(f"Processing image: {args.image}")
     else:
         print(f"Using camera {args.camera} with {args.interval}s interval")
+        if not args.image:
+            print(f"GPS: {args.gps_host}:{args.gps_port}")
 
     frame_count = 0
     saved_count = 0
+
+    # Initialize GPS reader if not processing images
+    gps_reader = None
+    if not args.image:
+        gps_reader = GPSReader(host=args.gps_host, port=args.gps_port)
 
     with Database(args.db_path) as db:
         try:
@@ -395,8 +590,8 @@ def main() -> None:
                 results = process_image_file(args.image)
                 frame_count = 1
 
-                for plate_text, confidence, plate_image in results:
-                    _process_detection(db, plate_text, confidence, plate_image,
+                for plate_text, confidence, plate_image, lat, lon in results:
+                    _process_detection(db, plate_text, confidence, plate_image, lat, lon,
                                      args.save_detections, saved_count)
                     saved_count += 1
 
@@ -407,11 +602,14 @@ def main() -> None:
                 if not test_cap.isOpened():
                     print(f"Error: Cannot open camera {args.camera}. Please ensure a camera is connected and the index is correct.")
                     print("If you wish to process image files, use the --image option.")
+                    if gps_reader:
+                        gps_reader.close()
                     return
                 test_cap.release()
 
                 # Process live camera feed
                 print("Press Ctrl+C to stop...")
+                processor = ANPRProcessor(gps_reader=gps_reader)
                 while True:
                     frame = capture_from_camera(args.camera)
                     if frame is None:
@@ -420,11 +618,10 @@ def main() -> None:
                         continue
 
                     frame_count += 1
-                    processor = ANPRProcessor()
                     results = processor.process_frame(frame)
 
-                    for plate_text, confidence, plate_image in results:
-                        _process_detection(db, plate_text, confidence, plate_image,
+                    for plate_text, confidence, plate_image, lat, lon in results:
+                        _process_detection(db, plate_text, confidence, plate_image, lat, lon,
                                          args.save_detections, saved_count)
                         saved_count += 1
 
@@ -438,10 +635,14 @@ def main() -> None:
         except Exception as e:
             print(f"Error in main loop: {e}")
             raise
+        finally:
+            if gps_reader:
+                gps_reader.close()
 
 
 def _process_detection(db: Database, plate_text: str, confidence: float,
-                      plate_image: np.ndarray, save_images: bool, saved_count: int) -> None:
+                      plate_image: np.ndarray, lat: Optional[float], lon: Optional[float],
+                      save_images: bool, saved_count: int) -> None:
     """
     Process a single license plate detection and store it in the database.
 
@@ -450,6 +651,8 @@ def _process_detection(db: Database, plate_text: str, confidence: float,
         plate_text: Recognized license plate text
         confidence: Confidence score (0.0 to 1.0)
         plate_image: Cropped plate image (numpy array)
+        lat: Latitude (optional)
+        lon: Longitude (optional)
         save_images: Whether to save the plate image to disk
         saved_count: Current count of saved detections (for filename)
     """
@@ -498,11 +701,6 @@ def _process_detection(db: Database, plate_text: str, confidence: float,
         # but for simplicity, we'll just save the raw detection data
 
     # Insert the detection record
-    # For ANPR, we don't have GPS coordinates from the camera itself
-    # In a real implementation, we'd get GPS from a separate GPS module
-    # For now, we'll leave lat/lon as NULL and rely on external GPS tagging
-    # This assumes that the ANPR system is synchronized with a GPS source
-    # that provides location data separately (to be correlated by timestamp)
     db.execute(
         """
         INSERT INTO detections (signal_id, seen_at, lat, lon, rssi, source, raw)
@@ -511,15 +709,16 @@ def _process_detection(db: Database, plate_text: str, confidence: float,
         (
             signal_id,
             timestamp,
-            None,  # lat - to be filled by GPS correlation
-            None,  # lon - to be filled by GPS correlation
+            lat,  # lat - from GPS correlation
+            lon,  # lon - from GPS correlation
             int(confidence * 100),  # rssi field reused for confidence (0-100)
             'anpr_camera',
             f'{{"plate_text": "{plate_text}", "confidence": {confidence}, "image_saved": {save_images}}}'
         ),
     )
 
-    print(f"Detected license plate: {plate_text} (confidence: {confidence:.2f})")
+    print(f"Detected license plate: {plate_text} (confidence: {confidence:.2f})"
+          + (f" at ({lat:.6f}, {lon:.6f})" if lat is not None and lon is not None else ""))
 
 
 if __name__ == "__main__":
